@@ -1,0 +1,54 @@
+version: "3.8"
+
+services:
+  frontend:
+    image: ra41/3cxdailer:front
+    ports:
+      - "3001:3001"
+    depends_on:
+      - backend
+    networks:
+      - app_network
+    environment:
+      - VITE_API_URL=http://backend:3000
+
+  backend:
+    image: ra41/3cxdailer:backend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    networks:
+      - app_network
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=66l591JtOyQ7
+      - DB_NAME=3cxdailerdb
+
+  db:
+    image: postgres:15
+    container_name: postgres_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 66l591JtOyQ7
+      POSTGRES_DB: 3cxdailerdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+
+networks:
+  app_network:
+    driver: bridge

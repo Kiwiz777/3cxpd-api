@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/csv"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -70,15 +71,25 @@ func (h *NewStorageClient) CheckToken(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
+type ContactDetails struct {
+	Name     string `json:"name"`
+	Number   string `json:"number"`
+	CFStatus string `json:"cfstatus"`
+	Caller   string `json:"caller"`
+	CallTime string `json:"calltime"`
+	Notes    string `json:"notes"`
+}
 
 func (h *NewStorageClient) GetContacts(c *gin.Context) {
+	var response []ContactDetails
+
 	pageStr := c.Query("page")
 	limitStr := c.Query("limit")
 	if pageStr == "" {
 		pageStr = "1"
 	}
 	if limitStr == "" {
-		limitStr = "10"
+		limitStr = "30"
 	}
 
 	page, _ := strconv.Atoi(pageStr)
@@ -86,16 +97,39 @@ func (h *NewStorageClient) GetContacts(c *gin.Context) {
 	offset := (page - 1) * limit
 
 	var contacts []database.Contact
-	if err := h.DB.DB.Offset(offset).Limit(limit).Find(&contacts).Error; err != nil {
+
+	if err := h.DB.DB.Where("cf_status = ?", "completed").Offset(offset).Limit(limit).Find(&contacts).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, contacts)
+
+	for _, contact := range contacts {
+		var action database.Action
+		var rec ContactDetails
+		if err := h.DB.DB.Where("contact_id = ?", contact.ID).First(&action).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		rec.Name = contact.Name
+		rec.Number = contact.Number
+		rec.CFStatus = contact.CFStatus
+		rec.Caller = action.Caller
+		rec.CallTime = action.CallTime
+		rec.Notes = action.Notes
+
+		response = append(response, rec)
+	}
+
+	log.Println(response) // Debugging log
+
+	c.JSON(http.StatusOK, response)
 }
+
 
 func (h *NewStorageClient) GetContactsPending(c *gin.Context) {
 	var contacts []database.Contact
-	if err := h.DB.DB.Where("cfstatus = ?", "pending").Find(&contacts).Error; err != nil {
+	if err := h.DB.DB.Where("cf_status = ?", "pending").Find(&contacts).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -104,7 +138,7 @@ func (h *NewStorageClient) GetContactsPending(c *gin.Context) {
 
 func (h *NewStorageClient) NextContact(c *gin.Context) {
 	var contact database.Contact
-	if err := h.DB.DB.Where("cfstatus = ?", "pending").First(&contact).Error; err != nil {
+	if err := h.DB.DB.Where("cf_status = ?", "pending").First(&contact).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -113,7 +147,15 @@ func (h *NewStorageClient) NextContact(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, contact)
+
+	// Convert contact.Number (string) -> integer
+    parsedNumber, err := strconv.Atoi(contact.Number)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Number is not a valid integer"})
+        return
+    }
+
+	c.JSON(http.StatusOK, parsedNumber)
 }
 
 func (h *NewStorageClient) BulkAddContacts(c *gin.Context) {
@@ -133,8 +175,10 @@ func (h *NewStorageClient) BulkAddContacts(c *gin.Context) {
 
     for _, rec := range records {
         contact := database.Contact{
+			ID: uuid.New(),
             Name:   rec[0],
             Number: rec[1],
+			CFStatus: "pending",
             // other fields...
         }
         if err := h.DB.DB.Create(&contact).Error; err != nil {
@@ -151,6 +195,8 @@ func (h *NewStorageClient) AddContact(c *gin.Context) {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
+	contact.CFStatus = "pending"
+	contact.ID = uuid.New()
     if err := h.DB.DB.Create(&contact).Error; err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
@@ -181,6 +227,7 @@ func (h *NewStorageClient) UpdateContact(c *gin.Context) {
 	}
 
     action := database.Action{
+		ID:        uuid.New(),
         ContactID: contact.ID,
         Caller:    req.Caller,
         Notes:     req.Notes,
@@ -191,4 +238,17 @@ func (h *NewStorageClient) UpdateContact(c *gin.Context) {
         return
     }
     c.JSON(http.StatusOK, gin.H{"message": "Contact updated", "action": action})
+}
+// delete contact
+func (h *NewStorageClient) DeleteContact(c *gin.Context) {
+	var contact database.Contact
+	if err := h.DB.DB.Where("number = ?", c.Param("number")).First(&contact).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Contact not found"})
+		return
+	}
+	if err := h.DB.DB.Delete(&contact).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Contact deleted"})
 }

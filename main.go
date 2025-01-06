@@ -56,6 +56,7 @@ func main() {
 	router.GET("/contacts", handler.CheckAuth, handler.GetContacts)
 	router.GET("/pending", handler.CheckAuth, handler.GetContactsPending)
 	router.GET("/next", handler.CheckAuth, handler.NextContact)
+	router.DELETE("/contact/:number", handler.CheckAuth, handler.DeleteContact)
 
 
 	router.Run(":3000")

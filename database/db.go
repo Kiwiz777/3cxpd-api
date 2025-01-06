@@ -48,7 +48,7 @@ func NewStorageClient() (*StorageClient, error) {
 	client := &StorageClient{
 		DB: db,
 	}
-	//SeedDB(db)
+	SeedDB(db)
 	return client, nil
 }
 

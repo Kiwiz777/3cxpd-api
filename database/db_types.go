@@ -27,7 +27,7 @@ type Token struct {
 type Contact struct {
 	gorm.Model
 	ID        uuid.UUID `gorm:"type:uuid;primary_key"`
-	Name	  string    `json:"name"`
+	Name	  string    `json:"name" gorm:"unique"`
 	Number	  string    `json:"number"`
 	CFStatus  string    `json:"cf_status"`
 }
