@@ -114,7 +114,7 @@ func (h *NewStorageClient) GetContacts(c *gin.Context) {
 		rec.Name = contact.Name
 		rec.Number = contact.Number
 		rec.CFStatus = contact.CFStatus
-		rec.Caller = action.Caller
+		//rec.Caller = action.Caller
 		rec.CallTime = action.CallTime
 		rec.Notes = action.Notes
 
@@ -207,7 +207,7 @@ func (h *NewStorageClient) AddContact(c *gin.Context) {
 func (h *NewStorageClient) UpdateContact(c *gin.Context) {
     var req struct {
         Number string `json:"number"`
-        Caller string `json:"caller"`
+        //Caller string `json:"caller"`
         Notes  string `json:"notes"`
     }
     if err := c.BindJSON(&req); err != nil {
@@ -229,7 +229,7 @@ func (h *NewStorageClient) UpdateContact(c *gin.Context) {
     action := database.Action{
 		ID:        uuid.New(),
         ContactID: contact.ID,
-        Caller:    req.Caller,
+        //Caller:    req.Caller,
         Notes:     req.Notes,
         CallTime:  time.Now().Format("2006-01-02 15:04:05"),
     }

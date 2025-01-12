@@ -1,6 +1,8 @@
 package database
 
 import (
+	"time"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -30,12 +32,14 @@ type Contact struct {
 	Name	  string    `json:"name" gorm:"unique"`
 	Number	  string    `json:"number"`
 	CFStatus  string    `json:"cf_status"`
+	IsScheduled bool	`json:"is_scheduled"`
+	ScheduledTime time.Time `json:"scheduled_time"`
 }
 type Action struct {
 	gorm.Model
 	ID        uuid.UUID `gorm:"type:uuid;primary_key"`
 	ContactID uuid.UUID `json:"contact_id"`
-	Caller  string	`json:"caller"`
+	//Caller  string	`json:"caller"`
 	CallTime string	`json:"call_time"`
 	Notes string	`json:"notes"`
 }
