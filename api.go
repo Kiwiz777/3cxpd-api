@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kiwiz777/3cxpd-api/database"
+	"gorm.io/gorm"
 )
 
 type LoginRequest struct {
@@ -138,9 +139,26 @@ func (h *NewStorageClient) GetContactsPending(c *gin.Context) {
 
 func (h *NewStorageClient) NextContact(c *gin.Context) {
 	var contact database.Contact
-	if err := h.DB.DB.Where("cf_status = ?", "pending").First(&contact).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+	// First check for scheduled contacts that are past their scheduled time
+	now := time.Now()
+	if err := h.DB.DB.Where("cf_status = ? AND is_scheduled = ? AND scheduled_time <= ?", "pending", true, now).
+		Order("scheduled_time asc").
+		First(&contact).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// If no scheduled contacts are ready, get first non-scheduled pending contact
+			if err := h.DB.DB.Where("cf_status = ? AND is_scheduled = ?", "pending", false).
+				First(&contact).Error; err != nil {
+				if err == gorm.ErrRecordNotFound {
+					c.JSON(http.StatusNotFound, gin.H{"error": "No pending contacts found"})
+					return
+				}
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	}
 	contact.CFStatus = "inprogress"
 	if err := h.DB.DB.Save(&contact).Error; err != nil {
@@ -148,14 +166,8 @@ func (h *NewStorageClient) NextContact(c *gin.Context) {
 		return
 	}
 
-	// Convert contact.Number (string) -> integer
-    parsedNumber, err := strconv.Atoi(contact.Number)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Number is not a valid integer"})
-        return
-    }
 
-	c.JSON(http.StatusOK, parsedNumber)
+	c.JSON(http.StatusOK, contact)
 }
 
 func (h *NewStorageClient) BulkAddContacts(c *gin.Context) {
@@ -174,11 +186,19 @@ func (h *NewStorageClient) BulkAddContacts(c *gin.Context) {
     }
 
     for _, rec := range records {
+        scheduledTime, err := time.Parse("2006-01-02 15:04:05", rec[3])
+        if err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format for scheduled time"})
+            return
+        }
+
         contact := database.Contact{
-			ID: uuid.New(),
+            ID: uuid.New(),
             Name:   rec[0],
             Number: rec[1],
-			CFStatus: "pending",
+            CFStatus: "pending",
+            IsScheduled: rec[2] == "yes",
+            ScheduledTime: scheduledTime,
             // other fields...
         }
         if err := h.DB.DB.Create(&contact).Error; err != nil {
@@ -195,8 +215,14 @@ func (h *NewStorageClient) AddContact(c *gin.Context) {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
+	scheduledTime, err := time.Parse("2006-01-02 15:04:05", contact.ScheduledTime.Format("2006-01-02 15:04:05"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format for scheduled time"})
+		return
+	}
 	contact.CFStatus = "pending"
 	contact.ID = uuid.New()
+	contact.ScheduledTime = scheduledTime
     if err := h.DB.DB.Create(&contact).Error; err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
@@ -205,22 +231,33 @@ func (h *NewStorageClient) AddContact(c *gin.Context) {
 }
 
 func (h *NewStorageClient) UpdateContact(c *gin.Context) {
+    number := c.GetHeader("number")
+    response := c.GetHeader("response")
+
+    if number == ""  {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Missing number or response in headers"})
+        return
+    }
     var req struct {
         Number string `json:"number"`
         //Caller string `json:"caller"`
         Notes  string `json:"notes"`
     }
-    if err := c.BindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
+
+	req.Number = number
+	req.Notes = response
 
     var contact database.Contact
     if err := h.DB.DB.Where("number = ?", req.Number).First(&contact).Error; err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": "Contact not found"})
         return
     }
-	contact.CFStatus = "completed"
+	if response == "false" {
+		contact.CFStatus = "pending"
+	} else {
+		contact.CFStatus = "completed"
+	}
+
 	if err := h.DB.DB.Save(&contact).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
